@@ -27,8 +27,9 @@ Automated Bash scripts for deploying and fine-tuning **Zabbix 7.0 LTS** on **Ubu
 
 ### 1. Clone the repository
 ```bash
-git clone [https://github.com/YOUR_USERNAME/zabbix-automated-deployment.git](https://github.com/YOUR_USERNAME/zabbix-automated-deployment.git)
+git clone [https://github.com/V1p3rL0rd/zabbix-automated-deployment.git](https://github.com/V1p3rL0rd/zabbix-automated-deployment.git)
 cd zabbix-automated-deployment/
 chmod +x zabbix_deploy.sh
+./zabbix_deploy.sh
 
 after zabbix installation run zabbix_tuning.sh 
