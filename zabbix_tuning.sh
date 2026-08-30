@@ -48,7 +48,7 @@ set_param "StartPollersUnreachable" "3"     # Процессы для недос
 set_param "StartTrappers" "5"               # Процессы для Zabbix trapper и активных агентов
 set_param "StartPingers" "3"                # Процессы для ICMP-проверок (ping)
 set_param "StartHTTPPollers" "3"            # Процессы для веб-мониторинга
-set_param "StartDBSyncer" "4"               # Процессы сброса данных из кэша в БД
+set_param "StartDBSyncers" "4"               # Процессы сброса данных из кэша в БД
 
 # ------------------------------------------------------------------------------
 # Cache Sizes (Кэши)
