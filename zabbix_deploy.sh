@@ -2,13 +2,13 @@
 #
 # ==============================================================================
 #  Zabbix 7.0 production deployment script
-#  Backend DB : PostgreSQL (default version shipped with Ubuntu 24.04)
-#  Web server : Nginx + PHP-FPM (default versions shipped with Ubuntu 24.04)
-#  OS         : Ubuntu 24.04 LTS
+#  Backend DB : PostgreSQL (distro default: 14 / 16 / 18)
+#  Web server : Nginx + PHP-FPM (distro default: PHP 8.1 / 8.3 / 8.5)
+#  OS         : Ubuntu 22.04 / 24.04 / 26.04 LTS (auto-detected)
 # ==============================================================================
 #
 # Usage:
-#   sudo ./deploy_zabbix.sh [options]
+#   sudo ./zabbix_deploy.sh [options]
 #
 # Options:
 #   -d, --domain <fqdn>   ServerName / SSL CN (default: hostname -f)
@@ -28,7 +28,7 @@ trap 'echo "[ERROR] Script failed at line $LINENO. See ${LOG_FILE} for details."
 # Defaults / configuration
 # ------------------------------------------------------------------------------
 ZABBIX_MAJOR="7.0"
-UBUNTU_CODENAME_PKG="ubuntu24.04"
+SUPPORTED_UBUNTU=("22.04" "24.04" "26.04")
 DB_NAME="zabbix"
 DB_USER="zabbix"
 DOMAIN="$(hostname -f 2>/dev/null || hostname)"
@@ -73,6 +73,17 @@ gen_password() {
 require_root
 touch "$LOG_FILE"
 
+# Zabbix ships a separate repo per Ubuntu release, built against that release's
+# libraries (libxml2, libpq, t64 libs...). Never hardcode it.
+# shellcheck source=/dev/null
+. /etc/os-release
+if [[ "${ID:-}" != "ubuntu" ]] || [[ " ${SUPPORTED_UBUNTU[*]} " != *" ${VERSION_ID:-} "* ]]; then
+  log "Unsupported OS: ${PRETTY_NAME:-unknown}. Supported Ubuntu: ${SUPPORTED_UBUNTU[*]}"
+  exit 1
+fi
+UBUNTU_CODENAME_PKG="ubuntu${VERSION_ID}"
+log "Detected OS: ${PRETTY_NAME} -> Zabbix repo ${UBUNTU_CODENAME_PKG}"
+
 log "=== Zabbix ${ZABBIX_MAJOR} deployment starting ==="
 log "Domain: ${DOMAIN} | Timezone: ${TIMEZONE}"
 
@@ -84,7 +95,7 @@ fi
 DB_PASS="$(gen_password)"
 
 # ------------------------------------------------------------------------------
-# System update & base packages (all from standard Ubuntu 24.04 repos)
+# System update & base packages (all from standard Ubuntu repos)
 # ------------------------------------------------------------------------------
 log "Updating system packages..."
 export DEBIAN_FRONTEND=noninteractive
@@ -96,14 +107,40 @@ apt-get install -y wget gnupg2 curl ca-certificates ufw
 # Zabbix repository (the one and only external repo we add)
 # ------------------------------------------------------------------------------
 log "Adding Zabbix ${ZABBIX_MAJOR} repository..."
-ZBX_DEB="zabbix-release_${ZABBIX_MAJOR}-1+${UBUNTU_CODENAME_PKG}_all.deb"
+ZBX_DEB="zabbix-release_latest_${ZABBIX_MAJOR}+${UBUNTU_CODENAME_PKG}_all.deb"
 TMP_DEB="/tmp/${ZBX_DEB}"
-wget -q "https://repo.zabbix.com/zabbix/${ZABBIX_MAJOR}/ubuntu/pool/main/z/zabbix-release/${ZBX_DEB}" -O "${TMP_DEB}"
+if ! wget -q "https://repo.zabbix.com/zabbix/${ZABBIX_MAJOR}/ubuntu/pool/main/z/zabbix-release/${ZBX_DEB}" -O "${TMP_DEB}"; then
+  log "Cannot download ${ZBX_DEB}: no Zabbix ${ZABBIX_MAJOR} repo for ${PRETTY_NAME}."
+  exit 1
+fi
+# A zabbix-release for another Ubuntu release (e.g. left by a previous failed
+# run) would keep pointing apt at incompatible packages - purge it first.
+if dpkg-query -W -f='${Status}' zabbix-release 2>/dev/null | grep -q "ok installed\|config-files"; then
+  log "Purging previously installed zabbix-release package..."
+  apt-get purge -y zabbix-release
+fi
+# Drop leftovers (obsolete conffiles from a cross-release up/downgrade) that
+# would otherwise mix suites or reference a keyring that no longer exists.
+# grep exits 1 on "no match" - that is the normal clean-host case, hence || true
+# (otherwise set -e + pipefail abort the script).
+while IFS= read -r f; do
+  log "Removing stale Zabbix apt source: ${f}"
+  rm -f "${f}"
+done < <(grep -rlsF --include='*.list' --include='*.sources' 'repo.zabbix.com' /etc/apt/sources.list.d/ || true)
 dpkg -i "${TMP_DEB}"
 apt-get update -y
 
+# Fail fast if the Zabbix repo does not actually serve this release.
+# Capture first: "cmd | grep -q" under pipefail fails with SIGPIPE (141) when
+# grep exits early on a match.
+ZBX_POLICY="$(apt-cache policy zabbix-server-pgsql)"
+if [[ "${ZBX_POLICY}" != *"repo.zabbix.com/zabbix/${ZABBIX_MAJOR}/ubuntu ${VERSION_CODENAME}"* ]]; then
+  log "zabbix-server-pgsql is not available from the Zabbix repo for '${VERSION_CODENAME}'. Aborting."
+  exit 1
+fi
+
 # ------------------------------------------------------------------------------
-# Install everything else straight from Ubuntu 24.04 default repos
+# Install everything else straight from the distro's default repos
 # ------------------------------------------------------------------------------
 log "Installing PostgreSQL, Nginx, PHP-FPM and Zabbix packages..."
 apt-get install -y \

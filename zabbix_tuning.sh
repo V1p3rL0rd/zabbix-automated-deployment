@@ -2,7 +2,7 @@
 #
 # ==============================================================================
 # Zabbix Server Performance Tuning Script (~100 hosts)
-# OS : Ubuntu 24.04 LTS / Zabbix 7.0 LTS
+# OS : Ubuntu 22.04 / 24.04 / 26.04 LTS / Zabbix 7.0 LTS
 # ==============================================================================
 set -euo pipefail
 trap 'echo "[ERROR] Tuning script failed at line $LINENO." >&2' ERR
